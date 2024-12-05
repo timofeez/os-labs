@@ -2,7 +2,7 @@
 #define BITONIC_DATA_H
 
 typedef struct {
-    int *array;
+    int* array;
     int low;
     int count;
     int direction;

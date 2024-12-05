@@ -10,4 +10,6 @@ add_executable(bitonic_sort
     main.c
     src/bitonic_data.c
     src/bitonic_sort.c
+    src/globals.c
 )
+target_link_libraries(bitonic_sort pthread)

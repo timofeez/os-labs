@@ -1,19 +1,18 @@
 #include <gtest/gtest.h>
 #include <cstdlib>
 #include <ctime>
+#include <chrono>
+#include <iostream>
 
 extern "C" {
     #include "../02/include/utils.h"
     #include "../02/include/bitonic_sort.h"
     #include "../02/include/bitonic_data.h"
+     #include "../02/include/globals.h"
 
-    // Объявляем глобальные переменные, если они используются в реализации
-    int countOfActiveThreads = 0;
-    int maxCountOfThreads = 0;
-    pthread_mutex_t mutex;
 }
 
-// Тест базовой сортировки
+
 TEST(BitonicSort, BasicSorting) {
     int input[] = {10, 30, 20, 5, 25, 15, 35, 0};
     int expected[] = {0, 5, 10, 15, 20, 25, 30, 35};
@@ -22,7 +21,7 @@ TEST(BitonicSort, BasicSorting) {
     data.array = (int*)malloc(sizeof(int) * 8);
     data.low = 0;
     data.count = 8;
-    data.direction = 1; // 1 для сортировки по возрастанию
+    data.direction = 1; 
 
     for (int i = 0; i < 8; ++i) {
         data.array[i] = input[i];
@@ -37,7 +36,7 @@ TEST(BitonicSort, BasicSorting) {
     free(data.array);
 }
 
-// Тест сортировки пустого массива
+
 TEST(BitonicSort, EmptyArray) {
     BitonicData data;
     data.array = nullptr;
@@ -50,7 +49,7 @@ TEST(BitonicSort, EmptyArray) {
     ASSERT_EQ(data.array, nullptr);
 }
 
-// Тест сортировки массива с одним элементом
+
 TEST(BitonicSort, SingleElement) {
     BitonicData data;
     data.array = (int*)malloc(sizeof(int));
@@ -66,10 +65,10 @@ TEST(BitonicSort, SingleElement) {
     free(data.array);
 }
 
-// Тест производительности и корректности параллельной сортировки
+
 TEST(BitonicSort, ParallelCorrectnessAndPerformance) {
     if (pthread_mutex_init(&mutex, nullptr) != 0) {
-        perror("Не удалось инициализировать мьютекс!\n");
+        perror("Failed to initialize mutex!\n");
     }
 
     const int size = 1000000;
@@ -90,25 +89,31 @@ TEST(BitonicSort, ParallelCorrectnessAndPerformance) {
         dataParallel.array[i] = size - i;
     }
 
-    // Однопоточная сортировка
+    
     maxCountOfThreads = 0;
-    clock_t startConsistent = clock();
+    auto startConsistent = std::chrono::high_resolution_clock::now();
     bitonic_sort(&dataConsistent);
-    clock_t endConsistent = clock();
+    auto endConsistent = std::chrono::high_resolution_clock::now();
 
-    // Параллельная сортировка
-    maxCountOfThreads = 4; // Укажите нужное количество потоков
-    clock_t startParallel = clock();
+    
+    maxCountOfThreads = 4; 
+    auto startParallel = std::chrono::high_resolution_clock::now();
     bitonic_sort(&dataParallel);
-    clock_t endParallel = clock();
+    auto endParallel = std::chrono::high_resolution_clock::now();
 
-    // Проверяем корректность сортировки
+    
     for (int i = 0; i < size; ++i) {
         ASSERT_EQ(dataConsistent.array[i], dataParallel.array[i]);
     }
 
-    // Проверяем, что параллельная сортировка быстрее
-    ASSERT_TRUE((endParallel - startParallel) < (endConsistent - startConsistent));
+    
+    auto serialDuration = std::chrono::duration_cast<std::chrono::milliseconds>(endConsistent - startConsistent).count();
+    auto parallelDuration = std::chrono::duration_cast<std::chrono::milliseconds>(endParallel - startParallel).count();
+
+    std::cout << "Serial duration: " << serialDuration << " ms\n";
+    std::cout << "Parallel duration: " << parallelDuration << " ms\n";
+
+    ASSERT_TRUE(parallelDuration < serialDuration);
 
     free(dataConsistent.array);
     free(dataParallel.array);
