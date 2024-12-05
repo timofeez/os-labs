@@ -1,4 +1,4 @@
-#include <gtest/gtest.h> 
+#include <gtest/gtest.h>
 #include <array>
 #include <filesystem>
 #include <fstream>
@@ -8,121 +8,120 @@
 #include <sys/wait.h>
 
 extern "C" {
-    #include <utils.h>  // для функции RemoveVowels
-    #include <parent.h> // для функции Parent
+    #include <utils.h>
+    #include "parent.h"
 }
 
-// Тест для фильтрации и удаления гласных из нечетных и четных строк
+// Тест функции RemoveVowels
+TEST(test_remove_vowels, test_simple_case) {
+    char str[] = "hello world";
+    char expected[] = "hll wrld";
+    RemoveVowels(str);
+    ASSERT_STREQ(str, expected);
+}
+
+TEST(test_remove_vowels, test_case_insensitivity) {
+    char str[] = "Hello World";
+    char expected[] = "Hll Wrld";
+    RemoveVowels(str);
+    ASSERT_STREQ(str, expected);
+}
+
+TEST(test_remove_vowels, test_no_vowels) {
+    char str[] = "bcdfg";
+    char expected[] = "bcdfg";
+    RemoveVowels(str);
+    ASSERT_STREQ(str, expected);
+}
+
+TEST(test_remove_vowels, test_only_vowels) {
+    char str[] = "aeiouAEIOU";
+    char expected[] = "";
+    RemoveVowels(str);
+    ASSERT_STREQ(str, expected);
+}
+
+TEST(test_remove_vowels, test_special_characters) {
+    char str[] = "a!e@i#o$u%";
+    char expected[] = "!@#$%";
+    RemoveVowels(str);
+    ASSERT_STREQ(str, expected);
+}
+
+
+// Тест для фильтрации строк и удаления гласных
 TEST(test_filter_and_remove_vowels, test_filter_and_remove_vowels) {
     const char* fileWithInput = "input.txt";
 
-    constexpr int inputSize = 5;
+    // Входные данные с именами файлов
+    const char* outputFile1 = "output1.txt";
+    const char* outputFile2 = "output2.txt";
 
-    // Строки для тестирования
+    constexpr int inputSize = 5;
     std::array<const char*, inputSize> input = {
-            "first line",
-            "second line",
-            "abcd line",
-            "efghi line",
-            "q line"
+            "first",      // длина 5 -> нечетное -> pipe1
+            "second",     // длина 6 -> четное  -> pipe2
+            "abcd",       // длина 4 -> четное  -> pipe2
+            "efghi",      // длина 5 -> нечетное -> pipe1
+            "q"           // завершение
     };
 
-    // Создаем тестовый файл с входными строками
+    // Создаем тестовый файл с входными данными
     {
         auto inFile = std::ofstream(fileWithInput);
-
+        inFile << outputFile1 << '\n';
+        inFile << outputFile2 << '\n';
         for (const auto& line : input) {
             inFile << line << '\n';
         }
     }
 
-    auto deleter = [](FILE* file) {
-        fclose(file);
+    // Открываем входной файл
+    FILE* inFile = fopen(fileWithInput, "r");
+    ASSERT_TRUE(inFile != nullptr);
+
+    // Вызываем функцию Parent
+    Parent("../01/child1", "../01/child2", inFile);
+
+    // Проверяем содержимое выходных файлов
+    std::ifstream file1(outputFile1);
+    std::ifstream file2(outputFile2);
+
+    ASSERT_TRUE(file1.good());
+    ASSERT_TRUE(file2.good());
+
+    std::string line;
+
+    // Проверяем содержимое output1.txt
+    std::vector<std::string> expectedFile1 = {
+            "frst", "fgh"  // "first" и "efghi" без гласных
     };
 
-    // Открываем файл для чтения
-    std::unique_ptr<FILE, decltype(deleter)> inFile(fopen(fileWithInput, "r"), deleter);
-
-    // Указатели на дочерние процессы (которые будут вызваны в функции Parent)
-    int pipe1[2], pipe2[2];
-    if (pipe(pipe1) == -1 || pipe(pipe2) == -1) {
-        perror("Pipe failed");
-        exit(-1);
+    for (const auto& expected : expectedFile1) {
+        ASSERT_TRUE(std::getline(file1, line));
+        ASSERT_EQ(line, expected);
     }
 
-    pid_t pid1 = fork();
-    if (pid1 == 0) { // Дочерний процесс для pipe1 (нечетные строки)
-        close(pipe1[1]); // Закрываем неиспользуемую часть канала
-
-        char line[256];
-        int lineNumber = 1;
-        while (fgets(line, sizeof(line), inFile.get())) {
-            if (lineNumber % 2 != 0) { // Нечетная строка
-                RemoveVowels(line); // Удаление гласных
-                write(pipe1[1], line, strlen(line) + 1);
-            }
-            lineNumber++;
-        }
-        close(pipe1[1]); // Закрываем канал после записи
-        exit(0);
-    }
-
-    pid_t pid2 = fork();
-    if (pid2 == 0) { // Дочерний процесс для pipe2 (четные строки)
-        close(pipe2[1]); // Закрываем неиспользуемую часть канала
-
-        char line[256];
-        int lineNumber = 1;
-        while (fgets(line, sizeof(line), inFile.get())) {
-            if (lineNumber % 2 == 0) { // Четная строка
-                RemoveVowels(line); // Удаление гласных
-                write(pipe2[1], line, strlen(line) + 1);
-            }
-            lineNumber++;
-        }
-        close(pipe2[1]); // Закрываем канал после записи
-        exit(0);
-    }
-
-    close(pipe1[1]); // Закрываем каналы в родительском процессе
-    close(pipe2[1]);
-
-    // Чтение из pipe1 (нечетные строки)
-    char buffer1[256];
-    int bytesRead;
-    std::string firstProcessedOutput;
-    while ((bytesRead = read(pipe1[0], buffer1, sizeof(buffer1))) > 0) {
-        firstProcessedOutput.append(buffer1, bytesRead);
-    }
-
-    // Чтение из pipe2 (четные строки)
-    char buffer2[256];
-    std::string secondProcessedOutput;
-    while ((bytesRead = read(pipe2[0], buffer2, sizeof(buffer2))) > 0) {
-        secondProcessedOutput.append(buffer2, bytesRead);
-    }
-
-    // Ожидание завершения дочерних процессов
-    waitpid(pid1, NULL, 0);
-    waitpid(pid2, NULL, 0);
-
-    // Ожидаемые результаты
-    std::string firstExpectedOutput = "frst ln";  // Нечетная строка "first line"
-    std::string secondExpectedOutput = "scnd ln"; // Четная строка "second line"
-
-    // Проверка на корректность обработки
-    ASSERT_EQ(firstProcessedOutput, firstExpectedOutput);
-    ASSERT_EQ(secondProcessedOutput, secondExpectedOutput);
-
-    // Удаление файлов после теста
-    auto removeIfExists = [](const char* path) {
-        if (std::filesystem::exists(path)) {
-            std::filesystem::remove(path);
-        }
+    // Проверяем содержимое output2.txt
+    std::vector<std::string> expectedFile2 = {
+            "scnd", "bcd"  // "second" и "abcd" без гласных
     };
 
-    removeIfExists(fileWithInput);
+    for (const auto& expected : expectedFile2) {
+        ASSERT_TRUE(std::getline(file2, line));
+        ASSERT_EQ(line, expected);
+    }
+
+    // Удаляем файлы после теста
+    file1.close();
+    file2.close();
+    fclose(inFile);
+
+    std::filesystem::remove(fileWithInput);
+    std::filesystem::remove(outputFile1);
+    std::filesystem::remove(outputFile2);
 }
+
 
 int main(int argc, char **argv) {
     testing::InitGoogleTest(&argc, argv);

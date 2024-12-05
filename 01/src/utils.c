@@ -1,17 +1,16 @@
-#include <string.h>
-#include <ctype.h>
 #include "utils.h"
+#include <ctype.h>
+#include <string.h>
 
-void RemoveVowels(char *str) {
-    int writeIndex = 0;
-    int len = strlen(str);
-
-    for (int i = 0; i < len; i++) {
-        char c = tolower(str[i]); // Приводим символ к нижнему регистру для проверки
-        if (c != 'a' && c != 'e' && c != 'i' && c != 'o' && c != 'u') {
-            str[writeIndex++] = str[i]; // Копируем символ, если он не гласный
+void RemoveVowels(char* str) {
+    char* src = str;
+    char* dst = str;
+    while (*src) {
+        char lower = tolower((unsigned char)*src);
+        if (lower != 'a' && lower != 'e' && lower != 'i' && lower != 'o' && lower != 'u') {
+            *dst++ = *src;
         }
+        src++;
     }
-
-    str[writeIndex] = '\0'; // Завершаем строку
+    *dst = '\0';
 }
