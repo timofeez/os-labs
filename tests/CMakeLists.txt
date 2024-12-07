@@ -22,6 +22,18 @@ add_library(bitonic_sort_lib
     ../02/src/globals.c
     ../02/include/utils.h
 )
+add_library(lab3_lib
+    ../03/src/parent.c
+    ../03/src/utils.c
+)
+target_include_directories(lab3_lib PUBLIC ../03/include)
+
+add_executable(03_test lab3_test.cpp)
+target_include_directories(03_test PRIVATE ../03/include)
+target_link_libraries(03_test PRIVATE lab3_lib gtest_main Threads::Threads)
+
+set_target_properties(03_test PROPERTIES CXX_STANDARD 17)
+
 
 target_include_directories(bitonic_sort_lib PUBLIC ../02/include)
 
@@ -38,3 +50,4 @@ set_target_properties(02_test PROPERTIES CXX_STANDARD 17)
 enable_testing()
 add_test(NAME 01_test COMMAND 01_test)
 add_test(NAME 02_test COMMAND 02_test)
+add_test(NAME 03_test COMMAND 03_test)
