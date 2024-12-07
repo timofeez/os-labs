@@ -5,7 +5,7 @@
 
 int main(void) {
 
-    Parent("./child1", "./child2", stdin);
+    Parent("./03_child1", "./03_child2", stdin);
 
     return 0;
 }   

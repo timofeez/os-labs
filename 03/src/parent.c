@@ -55,14 +55,14 @@ void Parent(const char* pathToChild1, const char* pathToChild2, FILE* stream) {
 
     
     if ((pid1 = fork()) == 0) {
-        execl(pathToChild1, "child1", fileName1, NULL);
+        execl(pathToChild1, "03_child1", fileName1, NULL);
         perror("execl failed");
         exit(1);
     }
 
     
     if ((pid2 = fork()) == 0) {
-        execl(pathToChild2, "child2", fileName2, NULL);
+        execl(pathToChild2, "03_child2", fileName2, NULL);
         perror("execl failed");
         exit(1);
     }

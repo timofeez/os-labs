@@ -55,8 +55,8 @@ int main(int argc, char* argv[]) {
         }
 
         
-        if ((strcmp(argv[0], "child1") == 0 && shared_memory->target == 1) ||
-            (strcmp(argv[0], "child2") == 0 && shared_memory->target == 2)) {
+        if ((strcmp(argv[0], "03_child1") == 0 && shared_memory->target == 1) ||
+            (strcmp(argv[0], "03_child2") == 0 && shared_memory->target == 2)) {
             char buffer[MAX_BUFFER];
             strncpy(buffer, shared_memory->buffer, MAX_BUFFER);
 
