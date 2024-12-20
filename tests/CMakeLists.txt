@@ -34,6 +34,10 @@ target_link_libraries(03_test PRIVATE lab3_lib gtest_main Threads::Threads)
 
 set_target_properties(03_test PROPERTIES CXX_STANDARD 17)
 
+add_executable(04_test lab4_test.cpp ../04/src/lib2.c)
+target_include_directories(04_test PRIVATE ../04/include)
+target_link_libraries(04_test PRIVATE gtest_main)
+
 
 target_include_directories(bitonic_sort_lib PUBLIC ../02/include)
 
