@@ -13,10 +13,9 @@
 #include <signal.h>
 
 
-
 std::map<int, NodeInfo> nodes;
 static int next_port = 5557;
-static std::atomic<int> heartbeat_interval(0);
+std::atomic<int> heartbeat_interval(0);
 std::atomic<bool> run_monitor(true);
 std::mutex nodes_mutex;
 
@@ -47,8 +46,6 @@ std::thread monitor_thread([&]() {
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
 });
-
-
 
     {
         NodeInfo managerNode;
@@ -172,12 +169,10 @@ std::thread monitor_thread([&]() {
 
     std::lock_guard<std::mutex> lock(nodes_mutex);
     for (auto &kv : nodes) {
-        if (kv.second.id != -1) { // Проверяем все узлы, кроме корневого
+        if (kv.second.id != -1) {
             if (!kv.second.available) {
-                // Узел недоступен
                 std::cout << "Heartbit: node " << kv.second.id << " is unavailable now\n";
             } else if (!kv.second.identity.empty()) {
-                // Узел доступен — отправляем команду SET_HEARTBEAT
                 std::string cmd = "SET_HEARTBEAT " + std::to_string(time_ms);
                 zmq::message_t identity(kv.second.identity.size());
                 memcpy(identity.data(), kv.second.identity.data(), kv.second.identity.size());

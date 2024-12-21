@@ -6,9 +6,8 @@
 #include <string>
 #include <chrono>
 #include <mutex>
-#include <unistd.h> // для pid_t
-
-// Объявляем heartbeat_interval, чтобы использовать его снаружи
+#include <unistd.h>
+#include <zmq.hpp>
 
 struct NodeInfo {
     int id;
@@ -20,5 +19,8 @@ struct NodeInfo {
 };
 
 void controller();
+void process_command(const std::string& line, std::map<int, NodeInfo>& nodes, zmq::socket_t& frontend);
 
-#endif // MANAGER_H
+extern std::atomic<int> heartbeat_interval;
+
+#endif

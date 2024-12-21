@@ -99,7 +99,7 @@ std::thread heartbeat_thread([&]() {
 
                 std::string name = parts[1];
                 if (parts.size() == 2) {
-                    // Чтение
+                    
                     auto it = local_map.find(name);
                     if (it == local_map.end()) {
                         std::string reply = "RESULT '" + name + "' not found";
@@ -113,7 +113,7 @@ std::thread heartbeat_thread([&]() {
                         socket.send(r, zmq::send_flags::none);
                     }
                 } else {
-                    // Запись
+                    
                     std::string value_str = parts[2];
                     int value = std::stoi(value_str);
                     local_map[name] = value;
