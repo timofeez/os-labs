@@ -1,17 +1,24 @@
-#pragma once
+#ifndef MANAGER_H
+#define MANAGER_H
 
+#include <atomic>
+#include <map>
 #include <string>
 #include <chrono>
-#include <unistd.h> // For pid_t
+#include <mutex>
+#include <unistd.h> // для pid_t
+
+// Объявляем heartbeat_interval, чтобы использовать его снаружи
 
 struct NodeInfo {
-    int id;                     // Unique identifier for the node
-    int parent;                 // Parent node ID
-    std::string identity;       // Identity string for the node
-    bool available;             // Availability status of the node
-    std::chrono::steady_clock::time_point last_heartbeat; // Last heartbeat timestamp
-    pid_t pid;                  // Process ID of the node
+    int id;
+    int parent;
+    bool available;
+    std::string identity;
+    pid_t pid;
+    std::chrono::steady_clock::time_point last_heartbeat;
 };
 
-// Function declaration for the controller
 void controller();
+
+#endif // MANAGER_H

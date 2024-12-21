@@ -9,42 +9,46 @@
 #include <chrono>
 #include <mutex>
 #include <atomic>
-#include <sys/types.h>
 #include <unistd.h>
 #include <signal.h>
 
 
 
-static std::map<int, NodeInfo> nodes;
+std::map<int, NodeInfo> nodes;
 static int next_port = 5557;
 static std::atomic<int> heartbeat_interval(0);
-static std::atomic<bool> run_monitor(true);
-static std::mutex nodes_mutex;
+std::atomic<bool> run_monitor(true);
+std::mutex nodes_mutex;
 
 void controller() {
     zmq::context_t context(1);
     zmq::socket_t frontend(context, ZMQ_ROUTER);
     frontend.bind("tcp://*:5560");
 
-    std::thread monitor_thread([&]() {
-        while (run_monitor) {
-            if (heartbeat_interval > 0) {
-                int timeout_ms = 4 * heartbeat_interval.load();
-                auto now = std::chrono::steady_clock::now();
-                std::lock_guard<std::mutex> lock(nodes_mutex);
-                for (auto &kv : nodes) {
-                    if (kv.second.id != -1) {
-                        auto dur = std::chrono::duration_cast<std::chrono::milliseconds>(now - kv.second.last_heartbeat).count();
-                        if (dur > timeout_ms && kv.second.available) {
+std::thread monitor_thread([&]() {
+    while (run_monitor) {
+        if (heartbeat_interval > 0) {
+            int timeout_ms = 4 * heartbeat_interval.load();
+            auto now = std::chrono::steady_clock::now();
+            std::lock_guard<std::mutex> lock(nodes_mutex);
+
+            for (auto &kv : nodes) {
+                if (kv.second.id != -1) {
+                    auto dur = std::chrono::duration_cast<std::chrono::milliseconds>(now - kv.second.last_heartbeat).count();
+                    if (dur > timeout_ms) {
+                        if (kv.second.available) { // Только если было доступно
                             kv.second.available = false;
                             std::cout << "Heartbit: node " << kv.second.id << " is unavailable now\n";
                         }
                     }
                 }
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
         }
-    });
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+});
+
+
 
     {
         NodeInfo managerNode;
@@ -157,32 +161,39 @@ void controller() {
                 frontend.send(identity, zmq::send_flags::sndmore);
                 frontend.send(cmd_msg, zmq::send_flags::none);
 
-            } else if (parts[0] == "heartbit") {
-                if (parts.size() < 2) {
-                    std::cout << "Error: Wrong format\n";
-                    continue;
-                }
-                int time_ms = std::stoi(parts[1]);
-                heartbeat_interval.store(time_ms);
+           } else if (parts[0] == "heartbit") {
+    if (parts.size() < 2) {
+        std::cout << "Error: Wrong format\n";
+        continue;
+    }
 
-                {
-                    std::lock_guard<std::mutex> lock(nodes_mutex);
-                    for (auto &kv : nodes) {
-                        if (kv.second.id != -1 && !kv.second.identity.empty()) {
-                            std::string cmd = "SET_HEARTBEAT " + std::to_string(time_ms);
-                            zmq::message_t identity(kv.second.identity.size());
-                            memcpy(identity.data(), kv.second.identity.data(), kv.second.identity.size());
-                            zmq::message_t cmd_msg(cmd.size());
-                            memcpy(cmd_msg.data(), cmd.c_str(), cmd.size());
+    int time_ms = std::stoi(parts[1]);
+    heartbeat_interval.store(time_ms);
 
-                            frontend.send(identity, zmq::send_flags::sndmore);
-                            frontend.send(cmd_msg, zmq::send_flags::none);
-                        }
-                    }
-                }
-                std::cout << "Ok\n";
+    std::lock_guard<std::mutex> lock(nodes_mutex);
+    for (auto &kv : nodes) {
+        if (kv.second.id != -1) { // Проверяем все узлы, кроме корневого
+            if (!kv.second.available) {
+                // Узел недоступен
+                std::cout << "Heartbit: node " << kv.second.id << " is unavailable now\n";
+            } else if (!kv.second.identity.empty()) {
+                // Узел доступен — отправляем команду SET_HEARTBEAT
+                std::string cmd = "SET_HEARTBEAT " + std::to_string(time_ms);
+                zmq::message_t identity(kv.second.identity.size());
+                memcpy(identity.data(), kv.second.identity.data(), kv.second.identity.size());
+                zmq::message_t cmd_msg(cmd.size());
+                memcpy(cmd_msg.data(), cmd.c_str(), cmd.size());
 
-            } else if (parts[0] == "ping") {
+                frontend.send(identity, zmq::send_flags::sndmore);
+                frontend.send(cmd_msg, zmq::send_flags::none);
+            }
+        }
+    }
+
+    std::cout << "Ok\n";
+}
+
+ else if (parts[0] == "ping") {
                 if (parts.size() < 2) {
                     std::cout << "Error: Wrong format\n";
                     continue;

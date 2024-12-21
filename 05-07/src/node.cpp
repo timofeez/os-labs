@@ -37,20 +37,21 @@ int main(int argc, char** argv) {
     std::atomic<bool> running(true);
     std::atomic<int> hb_interval(0);
 
-    std::thread heartbeat_thread([&]() {
-        while (running) {
-            int interval = hb_interval.load();
-            if (interval > 0) {
-                std::string hb = "HEARTBEAT " + std::to_string(node_id);
-                zmq::message_t hbmsg(hb.size());
-                memcpy(hbmsg.data(), hb.c_str(), hb.size());
-                socket.send(hbmsg, zmq::send_flags::none);
-                std::this_thread::sleep_for(std::chrono::milliseconds(interval));
-            } else {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            }
+std::thread heartbeat_thread([&]() {
+    while (running) {
+        int interval = hb_interval.load();
+        if (interval > 0) {
+            std::string hb = "HEARTBEAT " + std::to_string(node_id);
+            zmq::message_t hbmsg(hb.size());
+            memcpy(hbmsg.data(), hb.c_str(), hb.size());
+            socket.send(hbmsg, zmq::send_flags::none);
+            std::this_thread::sleep_for(std::chrono::milliseconds(interval));
+        } else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
-    });
+    }
+});
+
 
     zmq::pollitem_t items[] = {
         {static_cast<void*>(socket), 0, ZMQ_POLLIN, 0}
