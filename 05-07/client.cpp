@@ -7,6 +7,7 @@
 #include <map>
 #include <sstream>
 #include <string>
+#include <vector>
 #include <zmq.hpp>
 
 using namespace std;
@@ -16,17 +17,25 @@ const int DEFAULT_PORT = 5050;
 int n = 2;
 std::map<std::string, int> m;
 
+struct Child {
+    int id;
+    int pid;
+    zmq::socket_t* socket;
+};
+
 bool send_message(zmq::socket_t& socket, const string& message_string) {
     zmq::message_t message(message_string.size());
     memcpy(message.data(), message_string.c_str(), message_string.size());
-    return socket.send(message);
+    auto result = socket.send(message, zmq::send_flags::none);
+    return result.has_value();
 }
 
 string receive_message(zmq::socket_t& socket) {
     zmq::message_t message;
     bool ok = false;
     try {
-        ok = socket.recv(&message);
+        auto result = socket.recv(message, zmq::recv_flags::none);
+        ok = result.has_value();
     } catch (...) {
         ok = false;
     }
@@ -49,7 +58,7 @@ string get_port_name(const int port) {
     return "tcp://127.0.0.1:" + to_string(port);
 }
 
-void real_create(zmq::socket_t& parent_socket, zmq::socket_t& socket, int& create_id, int& id, int& pid) {
+void real_create(zmq::socket_t& parent_socket, zmq::context_t& context, vector<Child>& children, int create_id, int& id, int& pid) {
     cout << to_string(id);
     if (pid == -1) {
         send_message(parent_socket, "Error: Cannot fork");
@@ -57,70 +66,89 @@ void real_create(zmq::socket_t& parent_socket, zmq::socket_t& socket, int& creat
     } else if (pid == 0) {
         create_node(create_id, DEFAULT_PORT + create_id);
     } else {
+        zmq::socket_t* child_socket = new zmq::socket_t(context, ZMQ_REQ);
+        child_socket->connect(get_port_name(DEFAULT_PORT + create_id));
+        child_socket->set(zmq::sockopt::rcvtimeo, TIMER);
+        child_socket->set(zmq::sockopt::sndtimeo, TIMER);
+        Child child;
+        child.id = create_id;
+        child.pid = pid;
+        child.socket = child_socket;
+        children.push_back(child);
         id = create_id;
-        send_message(socket, "pid");
-        send_message(parent_socket, receive_message(socket));
+        send_message(*child_socket, "pid");
+        send_message(parent_socket, receive_message(*child_socket));
     }
 }
 
-void real_kill(zmq::socket_t& parent_socket, zmq::socket_t& socket, int& delete_id, int& id, int& pid, string& request_string) {
+void real_kill(zmq::socket_t& parent_socket, vector<Child>& children, int delete_id, int& id, string& request_string) {
     if (id == 0) {
         send_message(parent_socket, "Error: Not found");
     } else if (id == delete_id) {
-        send_message(socket, "kill_children");
-        receive_message(socket);
-        kill(pid, SIGTERM);
-        kill(pid, SIGKILL);
+        for(auto& child : children){
+            send_message(*child.socket, "kill_children");
+            receive_message(*child.socket);
+            kill(child.pid, SIGTERM);
+            kill(child.pid, SIGKILL);
+            delete child.socket;
+        }
+        children.clear();
         id = 0;
-        pid = 0;
         send_message(parent_socket, "Ok");
     } else {
-        send_message(socket, request_string);
-        send_message(parent_socket, receive_message(socket));
+        for(auto& child : children){
+            send_message(*child.socket, request_string);
+            string response = receive_message(*child.socket);
+            if(!response.empty()){
+                send_message(parent_socket, response);
+            }
+        }
     }
 }
 
-void real_exec(zmq::socket_t& parent_socket, zmq::socket_t& socket, int& id, int& pid, string& request_string) {
-    if (pid == 0) {
-        string receive_message = "Error:" + to_string(id);
-        receive_message += ": Not found";
+void real_exec(zmq::socket_t& parent_socket, vector<Child>& children, int id, const string& request_string) {
+    if (id == 0) {
+        string receive_message = "Error:" + to_string(id) + ": Not found";
         send_message(parent_socket, receive_message);
     } else {
-        send_message(socket, request_string);
-        string str = receive_message(socket);
-        if (str == "") str = "Error: Node is unavailable";
-        send_message(parent_socket, str);
+        for(auto& child : children){
+            send_message(*child.socket, request_string);
+            string str = receive_message(*child.socket);
+            if (str.empty()) str = "Error: Node is unavailable";
+            send_message(parent_socket, str);
+        }
     }
 }
 
-void real_ping(zmq::socket_t& parent_socket, zmq::socket_t& socket, int& id, int& pid, string& request_string) {
-    if (pid == 0) {
-        string receive_message = "Error:" + to_string(id);
-        receive_message += ": Not found";
+void real_ping(zmq::socket_t& parent_socket, vector<Child>& children, int id, const string& request_string) {
+    if (id == 0) {
+        string receive_message = "Error:" + to_string(id) + ": Not found";
         send_message(parent_socket, receive_message);
     } else {
-        send_message(socket, request_string);
-        string str = receive_message(socket);
-        if (str == "") str = "Ok: 0";
-        send_message(parent_socket, str);
+        for(auto& child : children){
+            send_message(*child.socket, request_string);
+            string str = receive_message(*child.socket);
+            if (str.empty()) str = "Ok: 0";
+            send_message(parent_socket, str);
+        }
     }
 }
 
-void real_heartbeat(zmq::socket_t& parent_socket, zmq::socket_t& socket, int& id, int& pid, string& request_string) {
-    if (pid == 0) {
-        string receive_message = "Error:" + to_string(id);
-        receive_message += ": Not found";
+void real_heartbeat(zmq::socket_t& parent_socket, vector<Child>& children, int id, const string& request_string) {
+    if (id == 0) {
+        string receive_message = "Error:" + to_string(id) + ": Not found";
         send_message(parent_socket, receive_message);
     } else {
-        send_message(socket, request_string);
-        string str = receive_message(socket);
-        if (str == "") str = "Ok: 0";
-        send_message(parent_socket, str);
+        for(auto& child : children){
+            send_message(*child.socket, request_string);
+            string str = receive_message(*child.socket);
+            if (str.empty()) str = "Ok: 0";
+            send_message(parent_socket, str);
+        }
     }
 }
 
-void exec(istringstream& command_stream, zmq::socket_t& parent_socket, zmq::socket_t& left_socket, zmq::socket_t& right_socket, int& left_pid, int& right_pid,
-          int& id, string& request_string) {
+void exec_command(istringstream& command_stream, zmq::socket_t& parent_socket, zmq::context_t& context, vector<Child>& children, int& id, string& request_string) {
     string name, value;
     int exec_id;
     command_stream >> exec_id;
@@ -132,7 +160,7 @@ void exec(istringstream& command_stream, zmq::socket_t& parent_socket, zmq::sock
 
         if (value == "NOVALUE") {
             receive_message = "Ok:" + to_string(id) + ":";
-            if (m.contains(name)) {
+            if (m.find(name) != m.end()) {
                 receive_message += to_string(m[name]);
             } else {
                 receive_message += " '" + name + "' not found";
@@ -142,30 +170,24 @@ void exec(istringstream& command_stream, zmq::socket_t& parent_socket, zmq::sock
             receive_message = "Ok:" + to_string(id);
         }
         send_message(parent_socket, receive_message);
-    } else if (exec_id < id) {
-        real_exec(parent_socket, left_socket, exec_id, left_pid, request_string);
     } else {
-        real_exec(parent_socket, right_socket, exec_id, right_pid, request_string);
+        real_exec(parent_socket, children, id, request_string);
     }
 }
 
-void ping(istringstream& command_stream, zmq::socket_t& parent_socket, zmq::socket_t& left_socket, zmq::socket_t& right_socket, int& left_pid, int& right_pid,
-          int& id, string& request_string) {
+void ping_command(istringstream& command_stream, zmq::socket_t& parent_socket, vector<Child>& children, int& id, string& request_string) {
     int ping_id;
     string receive_message;
     command_stream >> ping_id;
     if (ping_id == id) {
         receive_message = "Ok: 1";
         send_message(parent_socket, receive_message);
-    } else if (ping_id < id) {
-        real_ping(parent_socket, left_socket, ping_id, left_pid, request_string);
     } else {
-        real_ping(parent_socket, right_socket, ping_id, right_pid, request_string);
+        real_ping(parent_socket, children, id, request_string);
     }
 }
 
-void heartbeat(istringstream& command_stream, zmq::socket_t& parent_socket, zmq::socket_t& left_socket, zmq::socket_t& right_socket, int& left_pid,
-               int& right_pid, int& id, string& request_string) {
+void heartbeat_command(istringstream& command_stream, zmq::socket_t& parent_socket, vector<Child>& children, int& id, string& request_string) {
     int ping_id;
     int ping_time;
     string receive_message;
@@ -174,34 +196,28 @@ void heartbeat(istringstream& command_stream, zmq::socket_t& parent_socket, zmq:
     if (ping_id == id) {
         receive_message = "Available:" + to_string(id);
         send_message(parent_socket, receive_message);
-    } else if (ping_id < id) {
-        real_heartbeat(parent_socket, left_socket, ping_id, left_pid, request_string);
     } else {
-        real_heartbeat(parent_socket, right_socket, ping_id, right_pid, request_string);
+        real_heartbeat(parent_socket, children, id, request_string);
     }
 }
 
-void kill_children(zmq::socket_t& parent_socket, zmq::socket_t& left_socket, zmq::socket_t& right_socket, int& left_pid, int& right_pid) {
-    if (left_pid == 0 && right_pid == 0) {
-        send_message(parent_socket, "Ok");
-    } else {
-        if (left_pid != 0) {
-            send_message(left_socket, "kill_children");
-            receive_message(left_socket);
-            kill(left_pid, SIGTERM);
-            kill(left_pid, SIGKILL);
-        }
-        if (right_pid != 0) {
-            send_message(right_socket, "kill_children");
-            receive_message(right_socket);
-            kill(right_pid, SIGTERM);
-            kill(right_pid, SIGKILL);
-        }
-        send_message(parent_socket, "Ok");
+void kill_children(zmq::socket_t& parent_socket, vector<Child>& children) {
+    for(auto& child : children){
+        send_message(*child.socket, "kill_children");
+        receive_message(*child.socket);
+        kill(child.pid, SIGTERM);
+        kill(child.pid, SIGKILL);
+        delete child.socket;
     }
+    children.clear();
+    send_message(parent_socket, "Ok");
 }
 
 int main(int argc, char** argv) {
+    if(argc < 3){
+        cerr << "Usage: ./client <id> <parent_port>\n";
+        return 1;
+    }
     int id = stoi(argv[1]);
     int parent_port = stoi(argv[2]);
     zmq::context_t context(3);
@@ -209,15 +225,14 @@ int main(int argc, char** argv) {
     parent_socket.connect(get_port_name(parent_port));
     parent_socket.set(zmq::sockopt::rcvtimeo, TIMER);
     parent_socket.set(zmq::sockopt::sndtimeo, TIMER);
-    int left_pid = 0;
-    int right_pid = 0;
-    int left_id = 0;
-    int right_id = 0;
-    zmq::socket_t left_socket(context, ZMQ_REQ);
-    zmq::socket_t right_socket(context, ZMQ_REQ);
+    vector<Child> children;
+    string request_string;
 
     while (true) {
-        string request_string = receive_message(parent_socket);
+        request_string = receive_message(parent_socket);
+        if(request_string.empty()){
+            continue;
+        }
         istringstream command_stream(request_string);
         string command;
         command_stream >> command;
@@ -233,74 +248,81 @@ int main(int argc, char** argv) {
             if (create_id == id) {
                 string message_string = "Error: Already exists";
                 send_message(parent_socket, message_string);
-            } else if (create_id < id) {
-                if (left_pid == 0) {
-                    left_socket.bind(get_port_name(DEFAULT_PORT + create_id));
-                    left_socket.set(zmq::sockopt::rcvtimeo, n * TIMER);
-                    left_socket.set(zmq::sockopt::sndtimeo, n * TIMER);
-                    left_pid = fork();
-                    real_create(parent_socket, left_socket, create_id, left_id, left_pid);
-                } else {
-                    send_message(left_socket, request_string);
-                    string str = receive_message(left_socket);
-                    if (str == "") {
-                        left_socket.bind(get_port_name(DEFAULT_PORT + create_id));
-                        left_socket.set(zmq::sockopt::rcvtimeo, n * TIMER);
-                        left_socket.set(zmq::sockopt::sndtimeo, n * TIMER);
-                        left_pid = fork();
-                        real_create(parent_socket, left_socket, create_id, left_id, left_pid);
-                    } else {
-                        send_message(parent_socket, str);
-                        n++;
-                        left_socket.set(zmq::sockopt::rcvtimeo, n * TIMER);
-                        left_socket.set(zmq::sockopt::sndtimeo, n * TIMER);
+            } else {
+                bool exists = false;
+                for(auto& child : children){
+                    if(child.id == create_id){
+                        exists = true;
+                        break;
                     }
                 }
-            } else {
-                if (right_pid == 0) {
-                    right_socket.bind(get_port_name(DEFAULT_PORT + create_id));
-                    right_socket.set(zmq::sockopt::rcvtimeo, n * TIMER);
-                    right_socket.set(zmq::sockopt::sndtimeo, n * TIMER);
-
-                    right_pid = fork();
-                    real_create(parent_socket, right_socket, create_id, right_id, right_pid);
-                } else {
-                    send_message(right_socket, request_string);
-                    string str = receive_message(right_socket);
-                    if (str == "") {
-                        right_socket.bind(get_port_name(DEFAULT_PORT + create_id));
-                        right_socket.set(zmq::sockopt::rcvtimeo, n * TIMER);
-                        right_socket.set(zmq::sockopt::sndtimeo, n * TIMER);
-                        right_pid = fork();
-                        real_create(parent_socket, right_socket, create_id, right_id, right_pid);
-                    } else {
-                        send_message(parent_socket, str);
-                        n++;
-                        right_socket.set(zmq::sockopt::rcvtimeo, n * TIMER);
-                        right_socket.set(zmq::sockopt::sndtimeo, n * TIMER);
+                if(exists){
+                    send_message(parent_socket, "Error: Child already exists");
+                }
+                else{
+                    pid_t pid = fork();
+                    if(pid < 0){
+                        send_message(parent_socket, "Error: Cannot fork");
+                    }
+                    else if(pid == 0){
+                        create_node(create_id, DEFAULT_PORT + create_id);
+                    }
+                    else{
+                        zmq::socket_t* child_socket = new zmq::socket_t(context, ZMQ_REQ);
+                        child_socket->connect(get_port_name(DEFAULT_PORT + create_id));
+                        child_socket->set(zmq::sockopt::rcvtimeo, TIMER);
+                        child_socket->set(zmq::sockopt::sndtimeo, TIMER);
+                        Child child;
+                        child.id = create_id;
+                        child.pid = pid;
+                        child.socket = child_socket;
+                        children.push_back(child);
+                        send_message(parent_socket, "Ok");
                     }
                 }
             }
         } else if (command == "kill") {
             int delete_id;
             command_stream >> delete_id;
-            if (delete_id < id) {
-                real_kill(parent_socket, left_socket, delete_id, left_id, left_pid, request_string);
-            } else {
-                real_kill(parent_socket, right_socket, delete_id, right_id, right_pid, request_string);
+            if (delete_id == id) {
+                kill_children(parent_socket, children);
+                break;
+            }
+            else{
+                bool found = false;
+                for(auto it = children.begin(); it != children.end(); ++it){
+                    if(it->id == delete_id){
+                        send_message(*(it->socket), "kill_children");
+                        string received_message = receive_message(*(it->socket));
+                        kill(it->pid, SIGTERM);
+                        kill(it->pid, SIGKILL);
+                        delete it->socket;
+                        children.erase(it);
+                        send_message(parent_socket, "Ok");
+                        found = true;
+                        break;
+                    }
+                }
+                if(!found){
+                    send_message(parent_socket, "Error: Not found");
+                }
             }
         } else if (command == "exec") {
-            exec(command_stream, parent_socket, left_socket, right_socket, left_pid, right_pid, id, request_string);
+            exec_command(command_stream, parent_socket, context, children, id, request_string);
         } else if (command == "ping") {
-            ping(command_stream, parent_socket, left_socket, right_socket, left_pid, right_pid, id, request_string);
+            ping_command(command_stream, parent_socket, children, id, request_string);
         } else if (command == "heartbeat") {
-            heartbeat(command_stream, parent_socket, left_socket, right_socket, left_pid, right_pid, id, request_string);
+            heartbeat_command(command_stream, parent_socket, children, id, request_string);
         } else if (command == "kill_children") {
-            kill_children(parent_socket, left_socket, right_socket, left_pid, right_pid);
+            kill_children(parent_socket, children);
+            break;
         }
         if (parent_port == 0) {
             break;
         }
+    }
+    for(auto& child : children){
+        delete child.socket;
     }
     return 0;
 }

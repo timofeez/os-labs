@@ -1,116 +1,130 @@
-#include <gtest/gtest.h>
+#include "gtest/gtest.h"
+#include "tree.hpp"
 #include <zmq.hpp>
 #include <thread>
 #include <chrono>
-#include "common.h"
-#include "manager.h"
+#include <vector>
+#include <string>
 
-// Локальная переменная для хранения узлов
-std::map<int, NodeInfo> test_nodes;
+using namespace std;
 
-// Тест для функции split
-TEST(SplitTest, BasicSplit) {
-    std::string input = "this is a test";
-    auto result = split(input);
-    EXPECT_EQ(result.size(), 4);
-    EXPECT_EQ(result[0], "this");
-    EXPECT_EQ(result[1], "is");
-    EXPECT_EQ(result[2], "a");
-    EXPECT_EQ(result[3], "test");
-}
-
-TEST(SplitTest, EmptyString) {
-    std::string input = "";
-    auto result = split(input);
-    EXPECT_TRUE(result.empty());
-}
-
-TEST(SplitTest, MultipleSpaces) {
-    std::string input = "   one   two  three   ";
-    auto result = split(input);
-    EXPECT_EQ(result.size(), 3);
-    EXPECT_EQ(result[0], "one");
-    EXPECT_EQ(result[1], "two");
-    EXPECT_EQ(result[2], "three");
-}
-
-// Тест для работы контроллера
-TEST(ControllerTest, BasicFunctionality) {
-    // Создание контекста ZMQ и сокетов
+TEST(ZeroMQIntegrationTest, CreateExecPingKillClient) {
     zmq::context_t context(1);
-    zmq::socket_t frontend(context, zmq::socket_type::router);
-    frontend.bind("inproc://test");
+    zmq::socket_t socket(context, ZMQ_REQ);
+    socket.connect("tcp://127.0.0.1:5050");
 
-    // Создание тестового узла
-    NodeInfo node;
-    node.id = 1;
-    node.parent = -1;
-    node.available = true;
-    node.identity = "node-1";
-    node.last_heartbeat = std::chrono::steady_clock::now();
-    test_nodes[1] = node;
+    string create_message = "create 1";
+    zmq::message_t request(create_message.size());
+    memcpy(request.data(), create_message.c_str(), create_message.size());
+    socket.send(request, zmq::send_flags::none);
 
-    // Проверка, что узел был добавлен корректно
-    ASSERT_EQ(test_nodes.size(), 1);
-    EXPECT_EQ(test_nodes[1].id, 1);
-    EXPECT_EQ(test_nodes[1].parent, -1);
-    EXPECT_EQ(test_nodes[1].identity, "node-1");
-    EXPECT_TRUE(test_nodes[1].available);
+    zmq::message_t reply;
+    socket.recv(reply);
+    string response(static_cast<char*>(reply.data()), reply.size());
+    EXPECT_EQ(response, "Ok");
+
+    string exec_message = "exec 1 x 10";
+    request.rebuild(exec_message.size());
+    memcpy(request.data(), exec_message.c_str(), exec_message.size());
+    socket.send(request, zmq::send_flags::none);
+    socket.recv(reply);
+    response = string(static_cast<char*>(reply.data()), reply.size());
+    EXPECT_EQ(response, "Ok:1");
+
+    string ping_message = "ping 1";
+    request.rebuild(ping_message.size());
+    memcpy(request.data(), ping_message.c_str(), ping_message.size());
+    socket.send(request, zmq::send_flags::none);
+    socket.recv(reply);
+    response = string(static_cast<char*>(reply.data()), reply.size());
+    EXPECT_EQ(response, "Ok:1");
+
+    string kill_message = "kill 1";
+    request.rebuild(kill_message.size());
+    memcpy(request.data(), kill_message.c_str(), kill_message.size());
+    socket.send(request, zmq::send_flags::none);
+    socket.recv(reply);
+    response = string(static_cast<char*>(reply.data()), reply.size());
+    EXPECT_EQ(response, "Ok");
+    this_thread::sleep_for(chrono::milliseconds(100));
 }
 
-// Тест для проверки heartbeat
-TEST(HeartbeatTest, NodeTimeout) {
-    NodeInfo node;
-    node.id = 1;
-    node.parent = -1;
-    node.available = true;
-    node.identity = "node-1";
-    node.last_heartbeat = std::chrono::steady_clock::now() - std::chrono::milliseconds(1000);
-    test_nodes[1] = node;
-
-    heartbeat_interval.store(200);
-    int timeout_ms = 4 * heartbeat_interval.load();
-
-    auto now = std::chrono::steady_clock::now();
-    auto dur = std::chrono::duration_cast<std::chrono::milliseconds>(now - test_nodes[1].last_heartbeat).count();
-
-    if (dur > timeout_ms) {
-        test_nodes[1].available = false;
-    }
-
-    EXPECT_FALSE(test_nodes[1].available);
-}
-
-// Тест для проверки команды ping
-TEST(PingTest, PingNode) {
+TEST(ZeroMQIntegrationTest, MultipleClients) {
     zmq::context_t context(1);
-    zmq::socket_t frontend(context, zmq::socket_type::router);
-    frontend.bind("inproc://test");
-
-    NodeInfo node;
-    node.id = 2;
-    node.parent = -1;
-    node.available = true;
-    node.identity = "node-2";
-    test_nodes[2] = node;
-
-    // Отправка команды PING
-    std::string cmd = "PING";
-    zmq::message_t identity_msg(node.identity.size());
-    memcpy(identity_msg.data(), node.identity.data(), node.identity.size());
-
-    zmq::message_t cmd_msg(cmd.size());
-    memcpy(cmd_msg.data(), cmd.data(), cmd.size());
-
-    frontend.send(identity_msg, zmq::send_flags::sndmore);
-    frontend.send(cmd_msg, zmq::send_flags::none);
-
-    // Проверка доступности узла
-    EXPECT_TRUE(test_nodes[2].available);
+    zmq::socket_t socket1(context, ZMQ_REQ);
+    zmq::socket_t socket2(context, ZMQ_REQ);
+    socket1.connect("tcp://127.0.0.1:5050");
+    socket2.connect("tcp://127.0.0.1:5051");
+    string message1 = "ping 1";
+    string message2 = "ping 2";
+    zmq::message_t request1(message1.size());
+    zmq::message_t request2(message2.size());
+    memcpy(request1.data(), message1.c_str(), message1.size());
+    memcpy(request2.data(), message2.c_str(), message2.size());
+    socket1.send(request1, zmq::send_flags::none);
+    socket2.send(request2, zmq::send_flags::none);
+    zmq::message_t reply1, reply2;
+    socket1.recv(reply1);
+    socket2.recv(reply2);
+    string response1(static_cast<char*>(reply1.data()), reply1.size());
+    string response2(static_cast<char*>(reply2.data()), reply2.size());
+    EXPECT_EQ(response1, "Ok:1");
+    EXPECT_EQ(response2, "Ok:2");
+    this_thread::sleep_for(chrono::milliseconds(150));
 }
 
-// Точка входа для тестов
-int main(int argc, char** argv) {
+TEST(ZeroMQIntegrationTest, HeartbeatCheck) {
+    zmq::context_t context(1);
+    zmq::socket_t socket(context, ZMQ_REQ);
+    socket.connect("tcp://127.0.0.1:5050");
+
+    string heartbeat_message = "heartbeat 500";
+    zmq::message_t request(heartbeat_message.size());
+    memcpy(request.data(), heartbeat_message.c_str(), heartbeat_message.size());
+    socket.send(request, zmq::send_flags::none);
+
+    zmq::message_t reply;
+    socket.recv(reply);
+    string response(static_cast<char*>(reply.data()), reply.size());
+    EXPECT_EQ(response, "Available:1");
+
+    this_thread::sleep_for(chrono::milliseconds(120));
+}
+
+TEST(TreeTest, CreateNode) {
+    Tree tree;
+    tree.push(1);
+    vector<int> nodes = tree.get_nodes();
+    EXPECT_EQ(nodes.size(), 1);
+    EXPECT_EQ(nodes[0], 1);
+    this_thread::sleep_for(chrono::milliseconds(80));
+}
+
+TEST(TreeTest, DeleteNode) {
+    Tree tree;
+    tree.push(1);
+    tree.push(2);
+    tree.kill(1);
+    vector<int> nodes = tree.get_nodes();
+    EXPECT_EQ(nodes.size(), 1);
+    EXPECT_EQ(nodes[0], 2);
+    this_thread::sleep_for(chrono::milliseconds(108));
+}
+
+TEST(TreeTest, GetNodes) {
+    Tree tree;
+    tree.push(1);
+    tree.push(2);
+    tree.push(3);
+    vector<int> nodes = tree.get_nodes();
+    EXPECT_EQ(nodes.size(), 3);
+    EXPECT_EQ(nodes[0], 1);
+    EXPECT_EQ(nodes[1], 2);
+    EXPECT_EQ(nodes[2], 3);
+    this_thread::sleep_for(chrono::milliseconds(111));
+}
+
+int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

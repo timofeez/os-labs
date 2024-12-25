@@ -16,77 +16,59 @@ void Tree::kill(int id) {
     root = kill(root, id);
 }
 
-void Tree::delete_node(Node* node) {
-    if (node == NULL) {
-        return;
-    }
-    delete_node(node->right);
-    delete_node(node->left);
-    delete node;
-}
-
 std::vector<int> Tree::get_nodes() {
     std::vector<int> result;
     get_nodes(root, result);
     return result;
 }
 
+void Tree::delete_node(Node* node) {
+    if (node == NULL) {
+        return;
+    }
+    for(auto child : node->children){
+        delete_node(child);
+    }
+    node->children.clear();
+    delete node;
+}
+
 void Tree::get_nodes(Node* node, std::vector<int>& v) {
     if (node == NULL) {
         return;
     }
-    get_nodes(node->left, v);
     v.push_back(node->id);
-    get_nodes(node->right, v);
+    for(auto child : node->children){
+        get_nodes(child, v);
+    }
 }
 
 Node* Tree::push(Node* root, int val) {
     if (root == NULL) {
         root = new Node;
         root->id = val;
-        root->left = NULL;
-        root->right = NULL;
         root->found = false;
         return root;
-    } else if (val < root->id) {
-        root->left = push(root->left, val);
-    } else if (val >= root->id) {
-        root->right = push(root->right, val);
+    } else {
+        root->children.push_back(push(NULL, val));
     }
     return root;
 }
 
 Node* Tree::kill(Node* root_node, int val) {
-    Node* node;
     if (root_node == NULL) {
         return NULL;
-    } else if (val < root_node->id) {
-        root_node->left = kill(root_node->left, val);
-    } else if (val > root_node->id) {
-        root_node->right = kill(root_node->right, val);
-    } else {
-        node = root_node;
-        if (root_node->left == NULL) {
-            root_node = root_node->right;
-        } else if (root_node->right == NULL) {
-            root_node = root_node->left;
-        }
-        delete node;
     }
-    if (root_node == NULL) {
-        return root_node;
+
+    for(auto it = root_node->children.begin(); it != root_node->children.end(); ){
+        if((*it)->id == val){
+            delete_node(*it);
+            it = root_node->children.erase(it);
+        }
+        else{
+            *it = kill(*it, val);
+            ++it;
+        }
     }
     return root_node;
-}
-
-void print_tree(Node* root, int depth) {
-    if (root == nullptr) {
-        return;
-    }
-    print_tree(root->right, depth + 1);
-    for (int i = 0; i < depth; ++i) {
-        std::cout << "    ";
-    }
-    std::cout << root->id << std::endl;
-    print_tree(root->left, depth + 1);
 }

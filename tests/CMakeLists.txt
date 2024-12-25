@@ -38,9 +38,9 @@ add_executable(04_test lab4_test.cpp ../04/src/lib2.c)
 target_include_directories(04_test PRIVATE ../04/include)
 target_link_libraries(04_test PRIVATE gtest_main)
 
-# add_executable(05_test lab5_test.cpp ../05-07/src/manager.cpp)
-# target_include_directories(05_test PRIVATE ../05-07/include)
-# target_link_libraries(05_test PRIVATE gtest_main zmq)
+add_executable(05_test lab5_test.cpp ../05-07/tree.cpp)
+target_include_directories(05_test PRIVATE ../05-07/)
+target_link_libraries(05_test PRIVATE gtest_main zmq)
 
 
 

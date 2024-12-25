@@ -3,8 +3,7 @@
 
 struct Node {
     int id;
-    Node* left;
-    Node* right;
+    std::vector<Node*> children;
     bool found;
 };
 
@@ -23,4 +22,3 @@ private:
     void delete_node(Node*);
 };
 
-void print_tree(Node* root, int depth);
